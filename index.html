@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Product Detection</title>
+</head>
+<body>
+    <div id="box"></div>
+    <script>
+
+        var arr = {	
+            max: function(array) {
+                return Math.max.apply(null, array);
+            },
+            
+            min: function(array) {
+                return Math.min.apply(null, array);
+            },
+            
+            range: function(array) {
+                return arr.max(array) - arr.min(array);
+            },
+            
+            midrange: function(array) {
+                return arr.range(array) / 2;
+            },
+
+            sum: function(array) {
+                var num = 0;
+                for (var i = 0, l = array.length; i < l; i++) num += array[i];
+                return num;
+            },
+            
+            mean: function(array) {
+                return arr.sum(array) / array.length;
+            },
+            
+            median: function(array) {
+                array.sort(function(a, b) {
+                    return a - b;
+                });
+                var mid = array.length / 2;
+                return mid % 1 ? array[mid - 0.5] : (array[mid - 1] + array[mid]) / 2;
+            },
+            
+            modes: function(array) {
+                if (!array.length) return [];
+                var modeMap = {},
+                    maxCount = 0,
+                    modes = [];
+
+                array.forEach(function(val) {
+                    if (!modeMap[val]) modeMap[val] = 1;
+                    else modeMap[val]++;
+
+                    if (modeMap[val] > maxCount) {
+                        modes = [val];
+                        maxCount = modeMap[val];
+                    }
+                    else if (modeMap[val] === maxCount) {
+                        modes.push(val);
+                        maxCount = modeMap[val];
+                    }
+                });
+                return modes;
+            },
+            
+            variance: function(array) {
+                var mean = arr.mean(array);
+                return arr.mean(array.map(function(num) {
+                    return Math.pow(num - mean, 2);
+                }));
+            },
+            
+            standardDeviation: function(array) {
+                return Math.sqrt(arr.variance(array));
+            },
+            
+            meanAbsoluteDeviation: function(array) {
+                var mean = arr.mean(array);
+                return arr.mean(array.map(function(num) {
+                    return Math.abs(num - mean);
+                }));
+            },
+            
+            zScores: function(array) {
+                var mean = arr.mean(array);
+                var standardDeviation = arr.standardDeviation(array);
+                return array.map(function(num) {
+                    return (num - mean) / standardDeviation;
+                });
+            }
+        };
+
+        function getSectorData(x, y, sW, sH, context){
+            var red = [];
+            var green = [];
+            var blue = [];
+
+            var imgd = context.getImageData(x, y, sW, sH);
+            var pix = imgd.data;
+
+
+            for (var i = 0, n = pix.length; i < n; i += 4) {
+                red.push(pix[i])
+                green.push(pix[i+1])
+                blue.push(pix[i+2])
+            }
+            
+
+            return {
+                
+                redMean: arr.mean(red),
+                greenMean: arr.mean(green),
+                blueMean: arr.mean(blue)
+            }
+        }
+
+        function getImageInfo(w, h, context) {
+            var red = [];
+            var green = [];
+            var blue = [];
+            var imgd = context.getImageData(0, 0, w, h);
+            var pix = imgd.data;
+
+
+            for (var i = 0, n = pix.length; i < n; i += 4) {
+                red.push(pix[i])
+                green.push(pix[i+1])
+                blue.push(pix[i+2])
+            }
+
+            return {
+                redMean: arr.mean(red),
+                greenMean: arr.mean(green),
+                blueMean: arr.mean(blue),
+                stdDevRed: arr.standardDeviation(red),
+                stdDevGreen: arr.standardDeviation(green),
+                stdDevBlue: arr.standardDeviation(blue)
+            }
+        }
+
+        function removeLoneSectors(F, sectors){
+            var gradientFactor = 0;
+
+            var i = F.length
+            while (i--) {
+                var x = sectors[F[i]].x;
+                var y = sectors[F[i]].y;
+                var neighbours = [
+                    (x-1)+'_'+(y-1), (x)+'_'+(y-1), (x+1)+'_'+(y-1),
+                    (x-1)+'_'+(y),                  (x+1)+'_'+(y),
+                    (x-1)+'_'+(y+1), (x)+'_'+(y+1), (x+1)+'_'+(y+1)
+                ];
+
+                var freeNeighbourCount = 0;
+                for(var n = 0; n < neighbours.length; n++){
+                    var key = neighbours[n]
+                    if(F.indexOf(key) === -1){
+                        
+                        freeNeighbourCount++;
+                        if(F[i] === '1_3') console.log(freeNeighbourCount, neighbours.length, i, F[i])
+                        if(freeNeighbourCount === neighbours.length){
+                            F.splice(i, 1);
+                        }
+                    }
+                }
+            }
+
+            return F;
+        }
+
+        function filterGradient(F, sectors, imgInfo){
+            var gradientFactor = 15;
+
+            var olength = F.length;
+            var i = F.length
+            while (i--) {
+                var x = sectors[F[i]].x;
+                var y = sectors[F[i]].y;
+                var neighbours = [
+                    (x-1)+'_'+(y-1), (x)+'_'+(y-1), (x+1)+'_'+(y-1),
+                    (x-1)+'_'+(y),                  (x+1)+'_'+(y),
+                    (x-1)+'_'+(y+1), (x)+'_'+(y+1), (x+1)+'_'+(y+1)
+                ];
+
+                for(var n = 0; n < neighbours.length; n++){
+                    var key = neighbours[n]
+                    var sector = sectors[key]
+                    if(F.indexOf(key) === -1 && sector && sectors[F[i]]){ // sectors[F[i]] shouldn't be necessary FIX
+                        var greySector = (sector.data.redMean + sector.data.greenMean + sector.data.blueMean)/3
+                        var greyNeighbour = (sectors[F[i]].data.redMean + sectors[F[i]].data.greenMean + sectors[F[i]].data.blueMean)/3
+                        // if(Math.abs(sector.data.redMean - sectors[F[i]].data.redMean) < gradientFactor  &&
+                        // Math.abs(sector.data.greenMean - sectors[F[i]].data.greenMean) < gradientFactor &&
+                        // Math.abs(sector.data.blueMean - sectors[F[i]].data.blueMean) < gradientFactor){
+                        //     newF.splice(i, 1);
+                        // }
+                        if(Math.abs(greySector - greyNeighbour) < gradientFactor) F.splice(i, 1);
+                    }
+                }
+            }
+
+            if(F.length < olength) F = filterGradient(F, sectors, imgInfo)            
+
+            return F;
+        }     
+        
+        function centerOfMass(F){
+            var i = F.length
+            var x = [];
+            var y = [];
+            var pieces;
+            while (i--) {
+
+                pieces = F[i].split('_');
+                x.push(parseInt(pieces[0]));
+                y.push(parseInt(pieces[1]));
+            }
+
+            return{
+                x: arr.mean(x), 
+                y: arr.mean(y),
+                radX: arr.standardDeviation(x),
+                radY: arr.standardDeviation(y)
+            }
+
+        }   
+
+        
+        var img = new Image();
+        img.src = "blue.jpg";
+        img.onload = function() {
+            var canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            var context = canvas.getContext('2d');  
+            
+            //context.filter = "blur(3px)" //Apply blur to filter noise
+            var w = img.width // Image width
+            var h = img.height // Image Height            
+            var C = 150; // Sector Count
+            var xL = C; // X Axis Length (in sectors)
+            var sW = w/xL; // Sector width
+            var yL = h/sW; // Y Axis Length (in sectors)
+            var sH = sW; // Sector Height
+            var sectors = {}; 
+
+            //draw image
+            context.drawImage(img, 0, 0, w, h);
+
+            var x = 1;
+            var y = 1;
+            var T = xL * yL;
+            for(i = 0; i < T; i++){
+                
+                var xPos = sW * x - sW;
+                var yPos = sH * y - sH;
+
+                // context.beginPath();
+                // context.moveTo(xPos, 0);
+                // context.lineTo(xPos, sH * i);
+                // context.stroke();
+                // context.beginPath();
+                // context.moveTo(0, yPos);
+                // context.lineTo(sW * i, yPos);
+                // context.stroke();
+
+                sectors[x+'_'+y] = {
+                    data: getSectorData(xPos, yPos, sW, sH, context),
+                    x: x,
+                    y: y,
+                    xPos: xPos,
+                    yPos: yPos
+                }
+                x++;  
+                if(x > C){
+                    y++;
+                    x = 1;
+                }              
+            }
+
+            var imgInfo = getImageInfo(w, h, context);
+
+            console.log(sectors);
+            console.log(imgInfo);
+
+            var F = [];
+
+            for(var i in sectors){
+                if(Math.abs(sectors[i].data.redMean - imgInfo.redMean) > imgInfo.stdDevRed) {
+                    F.push(i)
+                }else if(Math.abs(sectors[i].data.greenMean - imgInfo.greenMean) > imgInfo.stdDevGreen) {
+                    F.push(i)
+                }else if(Math.abs(sectors[i].data.blueMean - imgInfo.blueMean) > imgInfo.stdDevBlue) {
+                    F.push(i)
+                }
+
+            }
+
+            // Update F to contain actual sector data, so dont need to pass whole sector object to filtering and drawing functions
+
+            
+            F = removeLoneSectors(F, sectors);
+            F = filterGradient(F, sectors, imgInfo);
+            console.log('final sectors: ', F)
+
+            // var objectLocation = locateObject(sectors);
+
+            // console.log(objectSectors)
+            for(var i = 0; i < F.length; i++){
+                context.beginPath();
+                context.rect(sectors[F[i]].xPos, sectors[F[i]].yPos, sW, sH);
+                context.lineWidth="1";
+                context.strokeStyle="blue";
+                context.stroke();
+
+                // context.font = "20px Arial";
+                // context.lineWidth="2";
+                // context.strokeText(F[i],sectors[F[i]].xPos+20,sectors[F[i]].yPos+40);
+            }
+
+            var com = centerOfMass(F);
+
+            context.beginPath();
+            context.lineWidth="5";
+            context.strokeStyle="black";  
+            context.arc(com.x*sW,com.y*sW,Math.max(com.radX*sW + com.radY*sW),0,2*Math.PI);
+            context.stroke();
+            
+
+            document.getElementById("box").appendChild(canvas);  
+        }
+        
+    </script>
+</body>
+</html>
